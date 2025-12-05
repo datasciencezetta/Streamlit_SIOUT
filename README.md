@@ -70,13 +70,13 @@ Streamlit_SIOUT/
 
 **Filtros de Características Físicas:**
 - **Situação Cadastro SNISB**: Status do registro (Selecionado, Descartado)
-- **Situação Massa D'água**: Compatibilidade com polígonos ANA
-- **Situação Comparação SIOUT**: Níveis de compatibilidade entre sistemas
+- **Situação Massa D'água**: Compatibilidade com polígonos ANA (textos formatados para melhor legibilidade)
+- **Situação Comparação SIOUT**: Níveis de compatibilidade entre sistemas (textos formatados)
 - **Código SNISB**: Busca específica com autocompletar
 
 **Filtros de Uso e Empreendedor:**
 - **Finalidade de Uso (SNISB)**: Irrigação, Dessedentação Animal, Industrial, etc.
-- **Tipo de Material**: Terra, Concreto, CCR
+- **Número de Autorização**: Busca por número de portaria/autorização
 - **Empreendedor**: Busca por proprietário/responsável
 
 *Todos os filtros funcionam em conjunto (lógica AND)*
@@ -151,10 +151,15 @@ Streamlit_SIOUT/
 - ✅ Sistema de paginação inteligente com reticências
 - ✅ Filtros combinados com lógica AND (todos devem ser atendidos)
 - ✅ Multiselect com lógica OR dentro de cada filtro
-- ✅ Cache de dados para performance otimizada
+- ✅ Cache de dados para performance otimizada (@st.cache_data)
+- ✅ Cache de opções de filtros para evitar recalculação
+- ✅ Parsing de datas otimizado durante carregamento (parse_dates)
+- ✅ Tipos de dados otimizados para redução de memória (dtype_dict)
+- ✅ Lógica de filtros simplificada com estrutura de dicionário
 - ✅ Detecção e tratamento de polígonos truncados pelo Excel (32.767 caracteres)
 - ✅ Geometrias simplificadas automaticamente para melhor renderização
 - ✅ Controle de camadas do mapa sem recarregamento (JavaScript puro)
+- ✅ Formatação automática de textos dos filtros para melhor UX
 
 ## 🏢 Desenvolvido por
 

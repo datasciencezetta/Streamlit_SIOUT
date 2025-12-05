@@ -17,27 +17,76 @@ st.set_page_config(
 st.markdown("<h1 style='text-align: center;'>Ferramenta de Comparação de Registros - SNISB vs SIOUT-RS</h1>", unsafe_allow_html=True)
 st.markdown("---")
 
+# Função para formatar texto para exibição
+def formatar_texto_exibicao(texto):
+    """Formata texto para exibição amigável nos filtros"""
+    if pd.isna(texto):
+        return texto
+    
+    texto_str = str(texto)
+    
+    # Mapeamento de textos específicos
+    mapeamento = {
+        'forte_inidicio_agua_satelite': 'Forte Indício de Água (Satélite)',
+        'compatível com polígono ana': 'Compatível com Polígono ANA',
+        'totalmente compatível': 'Totalmente Compatível',
+        'compatível parcialmente': 'Compatível Parcialmente',
+        'compatível apenas geograficamente': 'Compatível Apenas Geograficamente',
+        'incompatível': 'Incompatível',
+        'não aplicado': 'Não Aplicado'
+    }
+    
+    texto_lower = texto_str.lower()
+    if texto_lower in mapeamento:
+        return mapeamento[texto_lower]
+    
+    # Substituir underscores por espaços e capitalizar
+    texto_formatado = texto_str.replace('_', ' ').title()
+    return texto_formatado
+
 # Função para carregar os dados com cache
 @st.cache_data
 def carregar_dados():
-    """Carrega o arquivo de dados CSV e retorna um DataFrame"""
+    """Carrega o arquivo de dados CSV e retorna um DataFrame otimizado"""
     try:
-        # Carregar arquivo CSV
         csv_path = os.path.join(os.path.dirname(__file__), "RELATORIO_FINAL_SNISB_SIOUT.csv")
+        
+        if not os.path.exists(csv_path):
+            st.error("Arquivo de dados não encontrado. Procure por RELATORIO_FINAL_SNISB_SIOUT.csv na pasta do aplicativo.")
+            return None
         
         # Configurar pandas para não truncar strings longas
         pd.set_option('display.max_colwidth', None)
         
-        if os.path.exists(csv_path):
-            # Carregar CSV (sem limite de 32.767 caracteres do Excel)
-            df = pd.read_csv(csv_path, dtype={'POLIGONO_ANA': str}, encoding='utf-8-sig')
-            return df
-        else:
-            st.error("Arquivo de dados não encontrado. Procure por RELATORIO_FINAL_SNISB_SIOUT.csv na pasta do aplicativo.")
-            return None
+        # Carregar CSV com tipos específicos para otimizar memória
+        dtype_dict = {
+            'POLIGONO_ANA': str,
+            'CODIGO_SNISB': str,
+            'CODIGO_BARRAGEM_ENTIDADE': str,
+            'AUTORIZACAO_NUM': str,
+            'AUTORIZACAO_SIOUT': str
+        }
+        
+        df = pd.read_csv(
+            csv_path, 
+            dtype=dtype_dict, 
+            encoding='utf-8-sig',
+            parse_dates=['DATA_DO_CADASTRO']
+        )
+        
+        return df
+        
     except Exception as e:
         st.error(f"Erro ao carregar o arquivo CSV: {e}")
         return None
+
+# Função auxiliar para gerar opções de filtro com cache
+@st.cache_data
+def gerar_opcoes_filtro(_df, coluna):
+    """Gera opções únicas para filtros com cache"""
+    if coluna not in _df.columns:
+        return []
+    return sorted(_df[coluna].dropna().unique().tolist())
 
 # Carregar os dados
 df = carregar_dados()
@@ -54,11 +103,10 @@ if df is not None:
         st.markdown("<p style='text-align: center; margin-bottom: 5px;'><small>Período de Cadastro</small></p>", unsafe_allow_html=True)
         col_data1, col_data2, col_data3 = st.columns([1, 1, 1])
         
-        # Converter coluna de data se existir
+        # Obter limites de data
         if 'DATA_DO_CADASTRO' in df.columns:
-            df['DATA_DO_CADASTRO'] = pd.to_datetime(df['DATA_DO_CADASTRO'], errors='coerce')
-            data_min = df['DATA_DO_CADASTRO'].min()
-            data_max = df['DATA_DO_CADASTRO'].max()
+            data_min = pd.to_datetime(df['DATA_DO_CADASTRO'].min()).date()
+            data_max = pd.to_datetime(df['DATA_DO_CADASTRO'].max()).date()
             
             with col_data2:
                 col_inicio, col_fim = st.columns(2)
@@ -85,176 +133,149 @@ if df is not None:
         st.markdown("")
         
         # Segunda linha: Filtros de Características Físicas (4 filtros na mesma linha)
-        st.markdown("<p style='text-align: center; margin-bottom: 5px;'><small>Filtros de Características Físicas</small></p>", unsafe_allow_html=True)
         col_fis1, col_fis2, col_fis3, col_fis4 = st.columns(4)
         
         with col_fis1:
             st.markdown("<p style='text-align: center; margin-bottom: 0;'><small>Situação Cadastro SNISB</small></p>", unsafe_allow_html=True)
-            if 'SITUACAO_CADASTRO_SNISB' in df.columns:
-                opcoes_cadastro = sorted(df['SITUACAO_CADASTRO_SNISB'].dropna().unique().tolist())
-                filtro_cadastro = st.multiselect(
-                    "Situação Cadastro SNISB",
-                    opcoes_cadastro,
-                    default=[],
-                    label_visibility="collapsed",
-                    placeholder="Selecione..."
-                )
-            else:
-                filtro_cadastro = []
+            opcoes_cadastro = gerar_opcoes_filtro(df, 'SITUACAO_CADASTRO_SNISB')
+            filtro_cadastro = st.multiselect(
+                "Situação Cadastro SNISB",
+                opcoes_cadastro,
+                default=[],
+                label_visibility="collapsed",
+                placeholder="Selecione..."
+            ) if opcoes_cadastro else []
         
         with col_fis2:
             st.markdown("<p style='text-align: center; margin-bottom: 0;'><small>Situação Massa D'água</small></p>", unsafe_allow_html=True)
             if 'SITUACAO_MASSA_DAGUA' in df.columns:
-                opcoes_massa = sorted(df['SITUACAO_MASSA_DAGUA'].dropna().unique().tolist())
-                filtro_massa = st.multiselect(
+                opcoes_massa_raw = sorted(df['SITUACAO_MASSA_DAGUA'].dropna().unique().tolist())
+                # Criar mapeamento de exibição para valores reais
+                opcoes_massa_dict = {formatar_texto_exibicao(opt): opt for opt in opcoes_massa_raw}
+                opcoes_massa_display = list(opcoes_massa_dict.keys())
+                
+                filtro_massa_display = st.multiselect(
                     "Situação Massa D'água",
-                    opcoes_massa,
+                    opcoes_massa_display,
                     default=[],
                     label_visibility="collapsed",
                     placeholder="Selecione..."
                 )
+                # Converter de volta para valores reais
+                filtro_massa = [opcoes_massa_dict[opt] for opt in filtro_massa_display]
             else:
                 filtro_massa = []
         
         with col_fis3:
             st.markdown("<p style='text-align: center; margin-bottom: 0;'><small>Situação Comparação SIOUT</small></p>", unsafe_allow_html=True)
             if 'SITUACAO_COMPARACAO_SIOUT' in df.columns:
-                opcoes_comparacao = sorted(df['SITUACAO_COMPARACAO_SIOUT'].dropna().unique().tolist())
-                filtro_comparacao = st.multiselect(
+                opcoes_comparacao_raw = sorted(df['SITUACAO_COMPARACAO_SIOUT'].dropna().unique().tolist())
+                # Criar mapeamento de exibição para valores reais
+                opcoes_comparacao_dict = {formatar_texto_exibicao(opt): opt for opt in opcoes_comparacao_raw}
+                opcoes_comparacao_display = list(opcoes_comparacao_dict.keys())
+                
+                filtro_comparacao_display = st.multiselect(
                     "Situação Comparação SIOUT",
-                    opcoes_comparacao,
+                    opcoes_comparacao_display,
                     default=[],
                     label_visibility="collapsed",
                     placeholder="Selecione..."
                 )
+                # Converter de volta para valores reais
+                filtro_comparacao = [opcoes_comparacao_dict[opt] for opt in filtro_comparacao_display]
             else:
                 filtro_comparacao = []
         
         with col_fis4:
             st.markdown("<p style='text-align: center; margin-bottom: 0;'><small>Código SNISB</small></p>", unsafe_allow_html=True)
-            if 'CODIGO_SNISB' in df.columns:
-                # Obter lista de códigos únicos
-                codigos_unicos = sorted(df['CODIGO_SNISB'].dropna().astype(str).unique().tolist())
-                
-                # Campo de busca com multiseleção
-                filtro_codigo = st.multiselect(
-                    "Código SNISB",
-                    codigos_unicos,
-                    default=[],
-                    label_visibility="collapsed",
-                    placeholder="Selecione...",
-                    key="filtro_codigo_snisb"
-                )
-            else:
-                filtro_codigo = []
+            codigos_unicos = gerar_opcoes_filtro(df, 'CODIGO_SNISB')
+            filtro_codigo = st.multiselect(
+                "Código SNISB",
+                codigos_unicos,
+                default=[],
+                label_visibility="collapsed",
+                placeholder="Selecione...",
+                key="filtro_codigo_snisb"
+            ) if codigos_unicos else []
         
         st.markdown("")
         
         # Terceira linha: Novos filtros (Uso, Material e Empreendedor)
-        st.markdown("<p style='text-align: center; margin-bottom: 5px;'><small>Filtros de Uso e Empreendedor</small></p>", unsafe_allow_html=True)
         col_uso1, col_uso2, col_uso3 = st.columns(3)
         
         with col_uso1:
             st.markdown("<p style='text-align: center; margin-bottom: 0;'><small>Finalidade de Uso (SNISB)</small></p>", unsafe_allow_html=True)
-            if 'USO_SNISB' in df.columns:
-                opcoes_uso = sorted(df['USO_SNISB'].dropna().unique().tolist())
-                filtro_uso = st.multiselect(
-                    "Finalidade de Uso",
-                    opcoes_uso,
-                    default=[],
-                    label_visibility="collapsed",
-                    placeholder="Selecione...",
-                    key="filtro_uso_snisb"
-                )
-            else:
-                filtro_uso = []
+            opcoes_uso = gerar_opcoes_filtro(df, 'USO_SNISB')
+            filtro_uso = st.multiselect(
+                "Finalidade de Uso",
+                opcoes_uso,
+                default=[],
+                label_visibility="collapsed",
+                placeholder="Selecione...",
+                key="filtro_uso_snisb"
+            ) if opcoes_uso else []
         
         with col_uso2:
-            st.markdown("<p style='text-align: center; margin-bottom: 0;'><small>Tipo de Material</small></p>", unsafe_allow_html=True)
-            if 'TIPO_DE_MATERIAL' in df.columns:
-                opcoes_material = sorted(df['TIPO_DE_MATERIAL'].dropna().unique().tolist())
-                filtro_material = st.multiselect(
-                    "Tipo de Material",
-                    opcoes_material,
-                    default=[],
-                    label_visibility="collapsed",
-                    placeholder="Selecione...",
-                    key="filtro_tipo_material"
-                )
-            else:
-                filtro_material = []
+            st.markdown("<p style='text-align: center; margin-bottom: 0;'><small>Número de Autorização</small></p>", unsafe_allow_html=True)
+            opcoes_autorizacao = gerar_opcoes_filtro(df, 'AUTORIZACAO_NUM')
+            filtro_autorizacao = st.multiselect(
+                "Número de Autorização",
+                opcoes_autorizacao,
+                default=[],
+                label_visibility="collapsed",
+                placeholder="Selecione...",
+                key="filtro_autorizacao_num"
+            ) if opcoes_autorizacao else []
         
         with col_uso3:
             st.markdown("<p style='text-align: center; margin-bottom: 0;'><small>Empreendedor</small></p>", unsafe_allow_html=True)
-            if 'EMPREENDEDOR_SNISB' in df.columns:
-                # Obter lista de empreendedores únicos
-                empreendedores_unicos = sorted(df['EMPREENDEDOR_SNISB'].dropna().astype(str).unique().tolist())
-                
-                filtro_empreendedor = st.multiselect(
-                    "Empreendedor",
-                    empreendedores_unicos,
-                    default=[],
-                    label_visibility="collapsed",
-                    placeholder="Selecione...",
-                    key="filtro_empreendedor_snisb"
-                )
-            else:
-                filtro_empreendedor = []
+            empreendedores_unicos = gerar_opcoes_filtro(df, 'EMPREENDEDOR_SNISB')
+            filtro_empreendedor = st.multiselect(
+                "Empreendedor",
+                empreendedores_unicos,
+                default=[],
+                label_visibility="collapsed",
+                placeholder="Selecione...",
+                key="filtro_empreendedor_snisb"
+            ) if empreendedores_unicos else []
         
         # Aplicar os filtros
         df_filtrado = df.copy()
-        
-        # Verificar se algum filtro está ativo
         filtros_ativos = []
         
         # Filtro de data
         if 'DATA_DO_CADASTRO' in df.columns:
             data_inicio_dt = pd.to_datetime(data_inicio)
             data_fim_dt = pd.to_datetime(data_fim)
+            data_min_dt = pd.to_datetime(data_min)
+            data_max_dt = pd.to_datetime(data_max)
             
-            # Verificar se o filtro de data está ativo (diferente do range completo)
-            if data_inicio_dt > data_min or data_fim_dt < data_max:
+            if data_inicio_dt > data_min_dt or data_fim_dt < data_max_dt:
                 df_filtrado = df_filtrado[
                     (df_filtrado['DATA_DO_CADASTRO'] >= data_inicio_dt) & 
                     (df_filtrado['DATA_DO_CADASTRO'] <= data_fim_dt)
                 ]
                 filtros_ativos.append('DATA_DO_CADASTRO')
         
-        # Filtro de Código SNISB
-        if filtro_codigo:
-            if 'CODIGO_SNISB' in df_filtrado.columns:
-                df_filtrado = df_filtrado[df_filtrado['CODIGO_SNISB'].astype(str).isin(filtro_codigo)]
-                filtros_ativos.append('CODIGO_SNISB')
+        # Dicionário de filtros para aplicação dinâmica
+        filtros = {
+            'CODIGO_SNISB': filtro_codigo,
+            'SITUACAO_CADASTRO_SNISB': filtro_cadastro,
+            'SITUACAO_MASSA_DAGUA': filtro_massa,
+            'SITUACAO_COMPARACAO_SIOUT': filtro_comparacao,
+            'USO_SNISB': filtro_uso,
+            'AUTORIZACAO_NUM': filtro_autorizacao,
+            'EMPREENDEDOR_SNISB': filtro_empreendedor
+        }
         
-        if filtro_cadastro:
-            df_filtrado = df_filtrado[df_filtrado['SITUACAO_CADASTRO_SNISB'].isin(filtro_cadastro)]
-            filtros_ativos.append('SITUACAO_CADASTRO_SNISB')
-        
-        if filtro_massa:
-            df_filtrado = df_filtrado[df_filtrado['SITUACAO_MASSA_DAGUA'].isin(filtro_massa)]
-            filtros_ativos.append('SITUACAO_MASSA_DAGUA')
-        
-        if filtro_comparacao:
-            df_filtrado = df_filtrado[df_filtrado['SITUACAO_COMPARACAO_SIOUT'].isin(filtro_comparacao)]
-            filtros_ativos.append('SITUACAO_COMPARACAO_SIOUT')
-        
-        # Filtro de Uso SNISB
-        if filtro_uso:
-            if 'USO_SNISB' in df_filtrado.columns:
-                df_filtrado = df_filtrado[df_filtrado['USO_SNISB'].isin(filtro_uso)]
-                filtros_ativos.append('USO_SNISB')
-        
-        # Filtro de Tipo de Material
-        if filtro_material:
-            if 'TIPO_DE_MATERIAL' in df_filtrado.columns:
-                df_filtrado = df_filtrado[df_filtrado['TIPO_DE_MATERIAL'].isin(filtro_material)]
-                filtros_ativos.append('TIPO_DE_MATERIAL')
-        
-        # Filtro de Empreendedor
-        if filtro_empreendedor:
-            if 'EMPREENDEDOR_SNISB' in df_filtrado.columns:
-                df_filtrado = df_filtrado[df_filtrado['EMPREENDEDOR_SNISB'].astype(str).isin(filtro_empreendedor)]
-                filtros_ativos.append('EMPREENDEDOR_SNISB')
+        # Aplicar filtros dinamicamente
+        for coluna, valores in filtros.items():
+            if valores and coluna in df_filtrado.columns:
+                if coluna in ['CODIGO_SNISB', 'AUTORIZACAO_NUM', 'EMPREENDEDOR_SNISB']:
+                    df_filtrado = df_filtrado[df_filtrado[coluna].astype(str).isin(valores)]
+                else:
+                    df_filtrado = df_filtrado[df_filtrado[coluna].isin(valores)]
+                filtros_ativos.append(coluna)
         
         # Definir texto baseado se há filtros ativos
         tem_filtros = len(filtros_ativos) > 0
@@ -278,9 +299,6 @@ if df is not None:
             # Calcular índices para a página atual
             inicio = (st.session_state.pagina_atual - 1) * registros_por_pagina
             fim = min(inicio + registros_por_pagina, len(df_filtrado))
-            
-            # Mostrar informação da paginação
-            st.markdown(f"<p style='text-align: center;'><small>Exibindo registros {inicio + 1} a {fim} de {len(df_filtrado):,}</small></p>", unsafe_allow_html=True)
             
             # Obter dados da página atual
             df_pagina = df_filtrado.iloc[inicio:fim].copy()
