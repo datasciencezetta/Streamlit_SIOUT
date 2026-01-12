@@ -105,8 +105,15 @@ if df is not None:
         
         # Obter limites de data
         if 'DATA_DO_CADASTRO' in df.columns:
-            data_min = pd.to_datetime(df['DATA_DO_CADASTRO'].min()).date()
-            data_max = pd.to_datetime(df['DATA_DO_CADASTRO'].max()).date()
+            # Filtrar apenas valores não nulos antes de calcular min e max
+            datas_validas = df['DATA_DO_CADASTRO'].dropna()
+            if len(datas_validas) > 0:
+                data_min = pd.to_datetime(datas_validas.min()).date()
+                data_max = pd.to_datetime(datas_validas.max()).date()
+            else:
+                # Se não houver datas válidas, usar valores padrão
+                data_min = pd.Timestamp.now().date()
+                data_max = pd.Timestamp.now().date()
             
             with col_data2:
                 col_inicio, col_fim = st.columns(2)
@@ -251,7 +258,9 @@ if df is not None:
             data_max_dt = pd.to_datetime(data_max)
             
             if data_inicio_dt > data_min_dt or data_fim_dt < data_max_dt:
+                # Filtrar apenas registros com datas válidas (não nulas)
                 df_filtrado = df_filtrado[
+                    df_filtrado['DATA_DO_CADASTRO'].notna() &
                     (df_filtrado['DATA_DO_CADASTRO'] >= data_inicio_dt) & 
                     (df_filtrado['DATA_DO_CADASTRO'] <= data_fim_dt)
                 ]
